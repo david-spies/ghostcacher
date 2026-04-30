@@ -1,0 +1,82 @@
+{
+  "title": "GhostCacher — Distributed KV Cache",
+  "uid": "ghostcacher-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "title": "Cache Hit Ratio",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "color": "red",    "value": 0 },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green",  "value": 0.85 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "gc_cache_hit_ratio", "legendFormat": "Hit Ratio" }]
+    },
+    {
+      "id": 2, "type": "stat", "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "title": "Total Cache Hits",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "gc_cache_hits_total", "legendFormat": "Hits" }]
+    },
+    {
+      "id": 3, "type": "stat", "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "title": "Tokens Cached",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "gc_tokens_cached_total", "legendFormat": "Tokens" }]
+    },
+    {
+      "id": 4, "type": "stat", "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "title": "TTFT Saved (ms, total)",
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "gc_saved_ttft_ms_total", "legendFormat": "TTFT Saved" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "title": "Hit Rate over Time",
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "targets": [
+        { "expr": "gc_cache_hit_ratio", "legendFormat": "Hit Ratio" },
+        { "expr": "rate(gc_cache_hits_total[1m]) / (rate(gc_cache_hits_total[1m]) + rate(gc_cache_misses_total[1m]))", "legendFormat": "Rolling 1m Hit Rate" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "title": "Requests — Hits vs Misses",
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        { "expr": "rate(gc_cache_hits_total[1m])",   "legendFormat": "Hits/s" },
+        { "expr": "rate(gc_cache_misses_total[1m])", "legendFormat": "Misses/s" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "title": "Sidecar Overhead Latency",
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(gc_request_latency_ms_bucket[5m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(gc_request_latency_ms_bucket[5m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(gc_request_latency_ms_bucket[5m]))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "title": "RDMA Transfers",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "rate(gc_rdma_transfers_total[1m])", "legendFormat": "RDMA transfers/s" }
+      ]
+    }
+  ]
+}
