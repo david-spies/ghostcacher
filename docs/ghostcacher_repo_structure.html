@@ -1,0 +1,198 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-mono);font-size:13px}
+.wrap{padding:1.5rem 0 1rem}
+
+.tree-root{line-height:1}
+.tree-line{display:flex;align-items:stretch;min-height:28px;cursor:default}
+.tree-line:hover .row-inner{background:var(--color-background-secondary)}
+.row-inner{display:flex;align-items:center;gap:8px;padding:3px 8px 3px 0;border-radius:6px;flex:1;transition:background .1s}
+
+.indent{display:flex;align-items:stretch;flex-shrink:0}
+.pipe{width:20px;display:flex;justify-content:center;position:relative}
+.pipe::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--color-border-tertiary)}
+.pipe.last::before{bottom:50%}
+.pipe.gap{opacity:0}
+.elbow{width:20px;position:relative;flex-shrink:0}
+.elbow::before{content:'';position:absolute;top:50%;left:50%;width:10px;height:1px;background:var(--color-border-tertiary)}
+.elbow::after{content:'';position:absolute;top:0;bottom:50%;left:50%;width:1px;background:var(--color-border-tertiary)}
+
+.icon{width:16px;height:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.icon svg{width:14px;height:14px}
+
+.name{color:var(--color-text-primary);font-weight:400;white-space:nowrap}
+.name.dir{font-weight:500}
+.name.root-name{font-size:14px;font-weight:500}
+
+.badge{font-size:10px;padding:1px 6px;border-radius:3px;white-space:nowrap;border:0.5px solid;margin-left:4px}
+.b-rust  {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-cfg   {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-yaml  {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-py    {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-doc   {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-json  {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-svg   {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-docker{background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.b-sh    {background:var(--color-background-primary);border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+
+.loc{margin-left:auto;font-size:11px;color:var(--color-text-tertiary);padding-right:4px;white-space:nowrap}
+
+.desc{font-size:11px;color:var(--color-text-tertiary);margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.summary-strip{display:flex;gap:20px;flex-wrap:wrap;padding:14px 8px 0;border-top:0.5px solid var(--color-border-tertiary);margin-top:12px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat-val{font-size:18px;font-weight:500;color:var(--color-text-primary);line-height:1}
+.stat-lbl{font-size:11px;color:var(--color-text-tertiary)}
+
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:10px 8px 0;font-size:11px;color:var(--color-text-tertiary)}
+.leg-item{display:flex;align-items:center;gap:5px}
+.leg-dot{width:8px;height:8px;border-radius:2px}
+</style>
+
+<div class="wrap">
+<div class="tree-root" id="tree"></div>
+
+<div class="summary-strip">
+  <div class="stat"><span class="stat-val">52</span><span class="stat-lbl">total files</span></div>
+  <div class="stat"><span class="stat-val">18</span><span class="stat-lbl">Rust source</span></div>
+  <div class="stat"><span class="stat-val">2,327</span><span class="stat-lbl">lines of Rust</span></div>
+  <div class="stat"><span class="stat-val">675</span><span class="stat-lbl">lines Python</span></div>
+  <div class="stat"><span class="stat-val">9</span><span class="stat-lbl">K8s manifests</span></div>
+  <div class="stat"><span class="stat-val">3</span><span class="stat-lbl">Dockerfiles</span></div>
+</div>
+</div>
+
+<script>
+const ICONS = {
+  dir:    `<svg viewBox="0 0 16 16" fill="none"><path d="M1 4.5C1 3.67 1.67 3 2.5 3H6l1.5 2H13.5C14.33 5 15 5.67 15 6.5v6c0 .83-.67 1.5-1.5 1.5h-11C1.67 14 1 13.33 1 12.5v-8z" fill="var(--color-text-tertiary)" opacity=".5" stroke="var(--color-border-secondary)" stroke-width=".8"/></svg>`,
+  rust:   `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#c4422b" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="8" fill="#c4422b" font-weight="700">rs</text></svg>`,
+  toml:   `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="var(--color-text-tertiary)" font-weight="600">toml</text></svg>`,
+  yaml:   `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#185fa5" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="#185fa5" font-weight="600">yaml</text></svg>`,
+  py:     `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#854f0b" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="8" fill="#854f0b" font-weight="700">py</text></svg>`,
+  md:     `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#534ab7" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="#534ab7" font-weight="600">md</text></svg>`,
+  docker: `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#185fa5" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="6" fill="#185fa5" font-weight="600">dock</text></svg>`,
+  json:   `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="6.5" fill="var(--color-text-tertiary)" font-weight="600">json</text></svg>`,
+  svg_f:  `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="#0f6e56" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="#0f6e56" font-weight="600">svg</text></svg>`,
+  sh:     `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="var(--color-text-tertiary)" font-weight="600">sh</text></svg>`,
+  conf:   `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="var(--color-text-tertiary)">cfg</text></svg>`,
+  env:    `<svg viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width=".8"/><text x="8" y="11.5" text-anchor="middle" font-size="7" fill="var(--color-text-tertiary)">.env</text></svg>`,
+};
+
+function icon(type){ return `<div class="icon">${ICONS[type]||ICONS.conf}</div>`; }
+
+const tree = [
+  {n:'ghostcacher/',   t:'dir', depth:0, last:true,  desc:'workspace root', loc:''},
+  {n:'Cargo.toml',    t:'toml',depth:1, last:false, desc:'workspace manifest · 3 members', loc:''},
+  {n:'.env.example',  t:'env', depth:1, last:false, desc:'all GC_* env vars documented', loc:''},
+  {n:'.gitignore',    t:'conf',depth:1, last:false, desc:'', loc:''},
+  {n:'docker-compose.yml', t:'yaml', depth:1, last:false, desc:'full local dev stack', loc:'131'},
+  {n:'README.md',     t:'md',  depth:1, last:false, desc:'docs · architecture · API ref', loc:'394'},
+  {n:'QUICKSTART.md', t:'md',  depth:1, last:true,  desc:'5-step local walkthrough', loc:'368'},
+
+  {n:'sidecar/',      t:'dir', depth:1, last:false, desc:'Rust proxy — core interception binary', loc:'', section:true},
+  {n:'Cargo.toml',    t:'toml',depth:2, last:false, desc:'', loc:''},
+  {n:'Dockerfile',    t:'docker',depth:2,last:false,desc:'multi-stage → distroless ~8 MB', loc:''},
+  {n:'src/',          t:'dir', depth:2, last:true,  desc:'', loc:''},
+  {n:'main.rs',       t:'rust',depth:3, last:false, desc:'server setup · dual-port listen', loc:'100'},
+  {n:'types.rs',      t:'rust',depth:3, last:false, desc:'PromptBlock · CacheEntry · TtlPolicy', loc:'138'},
+  {n:'config.rs',     t:'rust',depth:3, last:false, desc:'env-var loader · all GC_* keys', loc:'105'},
+  {n:'hasher.rs',     t:'rust',depth:3, last:false, desc:'SHA-256 hierarchical hash · 4 unit tests', loc:'215'},
+  {n:'interceptor.rs',t:'rust',depth:3, last:false, desc:'main pipeline · Ghost-Lock · miss write', loc:'410'},
+  {n:'provider.rs',   t:'rust',depth:3, last:false, desc:'cache_control injection · 4 providers', loc:'158'},
+  {n:'redis_client.rs',t:'rust',depth:3,last:false, desc:'lookup · write · lock · pod loads', loc:'221'},
+  {n:'router.rs',     t:'rust',depth:3, last:false, desc:'Axum routes · healthz · flush API', loc:'69'},
+  {n:'metrics.rs',    t:'rust',depth:3, last:true,  desc:'Prometheus registry · 8 metrics', loc:'149'},
+
+  {n:'control-plane/',t:'dir', depth:1, last:false, desc:'Rust service — pod registry + eviction', loc:'', section:true},
+  {n:'Cargo.toml',    t:'toml',depth:2, last:false, desc:'', loc:''},
+  {n:'Dockerfile',    t:'docker',depth:2,last:false,desc:'multi-stage → distroless', loc:''},
+  {n:'src/',          t:'dir', depth:2, last:true,  desc:'', loc:''},
+  {n:'main.rs',       t:'rust',depth:3, last:false, desc:'Router · background loops', loc:'89'},
+  {n:'pod_registry.rs',t:'rust',depth:3,last:false, desc:'heartbeat · load tracking · dead-pod eviction', loc:'152'},
+  {n:'eviction.rs',   t:'rust',depth:3, last:false, desc:'cost-weighted TTL · scoring fn', loc:'122'},
+  {n:'admin.rs',      t:'rust',depth:3, last:false, desc:'REST handlers · flush · stats', loc:'86'},
+  {n:'config.rs',     t:'rust',depth:3, last:true,  desc:'GC_CP_* env var loader', loc:'48'},
+
+  {n:'kv-relay/',     t:'dir', depth:1, last:false, desc:'Rust DaemonSet — RDMA/gRPC tensor transfer', loc:'', section:true},
+  {n:'Cargo.toml',    t:'toml',depth:2, last:false, desc:'tonic + prost for gRPC', loc:''},
+  {n:'Dockerfile',    t:'docker',depth:2,last:false,desc:'debian-slim (libibverbs for RDMA)', loc:''},
+  {n:'src/',          t:'dir', depth:2, last:true,  desc:'', loc:''},
+  {n:'main.rs',       t:'rust',depth:3, last:false, desc:'gRPC server + health HTTP server', loc:'63'},
+  {n:'relay.rs',      t:'rust',depth:3, last:false, desc:'pull/push KV blocks · RDMA/TCP path', loc:'104'},
+  {n:'transfer.rs',   t:'rust',depth:3, last:false, desc:'KvBlock · TransferRequest/Response', loc:'44'},
+  {n:'config.rs',     t:'rust',depth:3, last:true,  desc:'GC_RELAY_* env var loader', loc:'54'},
+
+  {n:'k8s/',          t:'dir', depth:1, last:false, desc:'Kubernetes manifests', loc:'', section:true},
+  {n:'00-namespace.yaml', t:'yaml',depth:2,last:false,desc:'namespace + RBAC + ClusterRole', loc:''},
+  {n:'01-redis.yaml',     t:'yaml',depth:2,last:false,desc:'StatefulSet · ConfigMap · Service', loc:''},
+  {n:'02-sidecar.yaml',   t:'yaml',depth:2,last:false,desc:'deployment example · secret template', loc:''},
+  {n:'03-control-plane.yaml',t:'yaml',depth:2,last:false,desc:'HA Deployment · PDB', loc:''},
+  {n:'04-kv-relay.yaml',  t:'yaml',depth:2,last:true, desc:'DaemonSet · hostNetwork · RDMA caps', loc:''},
+
+  {n:'monitoring/',   t:'dir', depth:1, last:false, desc:'Prometheus + Grafana', loc:'', section:true},
+  {n:'prometheus.yaml',       t:'yaml',depth:2,last:false,desc:'K8s scrape config + alert rules', loc:''},
+  {n:'prometheus-local.yml',  t:'yaml',depth:2,last:false,desc:'docker-compose scrape config', loc:''},
+  {n:'grafana-datasource.yaml',t:'yaml',depth:2,last:false,desc:'Prometheus datasource provision', loc:''},
+  {n:'grafana-dashboard.json', t:'json',depth:2,last:true, desc:'8-panel GhostCacher dashboard', loc:''},
+
+  {n:'scripts/',      t:'dir', depth:1, last:false, desc:'Python SDK + dev utilities', loc:'', section:true},
+  {n:'ghostcacher_client.py',t:'py',depth:2,last:false,desc:'sync + async client · block hasher', loc:'401'},
+  {n:'example_usage.py',     t:'py',depth:2,last:false,desc:'4 runnable examples · hash tests', loc:'274'},
+  {n:'smoke_test.py',        t:'py',depth:2,last:false,desc:'CI smoke test suite', loc:''},
+  {n:'dev.sh',               t:'sh', depth:2,last:true, desc:'local dev helper script', loc:''},
+
+  {n:'redis/',        t:'dir', depth:1, last:false, desc:'Redis config', loc:'', section:true},
+  {n:'redis.conf',    t:'conf',depth:2, last:true,  desc:'AOF · maxmemory · keyspace events', loc:''},
+
+  {n:'docs/',         t:'dir', depth:1, last:true,  desc:'assets', loc:'', section:true},
+  {n:'banner.svg',    t:'svg_f',depth:2,last:true,  desc:'GitHub README banner · native render', loc:''},
+];
+
+function buildTree(){
+  const el = document.getElementById('tree');
+  const stacks = {};
+
+  tree.forEach((node, idx) => {
+    const d = node.depth;
+    const parentPipes = [];
+    for(let i=1;i<d;i++){
+      const open = stacks[i] === false ? false : true;
+      parentPipes.push(open);
+    }
+
+    stacks[d] = !node.last;
+    if(node.last) stacks[d] = false;
+
+    const line = document.createElement('div');
+    line.className = 'tree-line';
+
+    let indentHTML = '';
+    for(let i=1;i<d;i++){
+      const continuing = stacks[i] !== false;
+      indentHTML += `<div class="pipe${continuing||i<d-1?'':' last'}"></div>`;
+    }
+    if(d > 0){
+      indentHTML += `<div class="elbow"></div>`;
+    }
+
+    const isDir = node.t === 'dir';
+    const iconHTML = icon(node.t);
+    const nameClass = isDir ? 'name dir' : (d===0 ? 'name root-name' : 'name');
+    const locHTML = node.loc ? `<span class="loc">${node.loc} loc</span>` : '';
+    const descHTML = node.desc ? `<span class="desc">${node.desc}</span>` : '';
+
+    line.innerHTML = `
+      <div class="indent" style="width:${Math.max(0,d)*20}px">${indentHTML}</div>
+      <div class="row-inner">
+        ${iconHTML}
+        <span class="${nameClass}">${node.n}</span>
+        ${descHTML}
+        ${locHTML}
+      </div>`;
+
+    el.appendChild(line);
+  });
+}
+
+buildTree();
+</script>
