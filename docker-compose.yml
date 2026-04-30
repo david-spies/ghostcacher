@@ -1,0 +1,133 @@
+# docker-compose.yml
+# GhostCacher local development stack
+
+networks:
+  ghostcacher-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  grafana-data:
+  prometheus-data:
+
+services:
+
+  # ── Redis Control Plane ───────────────────────────────────────────────────
+  redis:
+    image: redis/redis-stack-server:7.4.0-v0
+    container_name: gc-redis
+    dns_search: "."
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight UI
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf
+    command: redis-server /etc/redis/redis.conf
+    networks:
+      - ghostcacher-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── GhostCacher Sidecar (local dev proxy) ────────────────────────────────
+  sidecar:
+    build:
+      context: .
+      dockerfile: sidecar/Dockerfile
+    container_name: gc-sidecar
+    dns_search: "."
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    # This replaces the need for the manual 'docker exec' patching in dev.sh
+    extra_hosts:
+      - "redis:${GC_REDIS_IP:-127.0.0.1}"
+      - "gc-redis:${GC_REDIS_IP:-127.0.0.1}"
+    environment:
+      GC_LISTEN_ADDR:              "0.0.0.0:8080"
+      GC_METRICS_ADDR:             "0.0.0.0:9090"
+      GC_UPSTREAM_URL:             "${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1/messages}"
+      GC_REDIS_URL:                "redis://gc-redis:6379"
+      GC_DEFAULT_POD_IP:           "127.0.0.1"
+      GC_POD_PORT:                 "8000"
+      GC_POD_PATH:                 "/v1/messages"
+      GC_REQUEST_TIMEOUT_SECS:     "120"
+      GC_HBM_SWAP_THRESHOLD:       "0.85"
+      GC_GHOST_LOCK_TIMEOUT_SECS:  "30"
+      GC_RDMA_ENABLED:             "false"
+      GC_LOG_LEVEL:                "debug"
+      ANTHROPIC_API_KEY:           "${ANTHROPIC_API_KEY}"
+      OPENAI_API_KEY:              "${OPENAI_API_KEY:-}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ghostcacher-net
+    restart: unless-stopped
+
+  # ── GhostCacher Control Plane ─────────────────────────────────────────────
+  control-plane:
+    build:
+      context: .
+      dockerfile: control-plane/Dockerfile
+    container_name: gc-control-plane
+    dns_search: "."
+    ports:
+      - "7070:7070"
+    extra_hosts:
+      - "redis:${GC_REDIS_IP:-127.0.0.1}"
+      - "gc-redis:${GC_REDIS_IP:-127.0.0.1}"
+    environment:
+      GC_CP_LISTEN_ADDR:             "0.0.0.0:7070"
+      GC_CP_REDIS_URL:               "redis://gc-redis:6379"
+      GC_CP_EVICTION_INTERVAL_SECS:  "300"
+      GC_CP_MAX_CACHE_ENTRIES:       "10000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ghostcacher-net
+    restart: unless-stopped
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: gc-prometheus
+    dns_search: "."
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    networks:
+      - ghostcacher-net
+    restart: unless-stopped
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: gc-grafana
+    dns_search: "."
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "ghostcacher"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/ds.yaml:ro
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/gc-dashboard.json:ro
+    depends_on:
+      - prometheus
+    networks:
+      - ghostcacher-net
+    restart: unless-stopped
