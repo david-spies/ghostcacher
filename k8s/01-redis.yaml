@@ -1,0 +1,120 @@
+---
+# k8s/01-redis.yaml
+# Redis Stack — GhostCacher Control Plane distributed state store
+# Production: use Redis Enterprise or Elasticache with cluster mode enabled.
+# This manifest is for self-hosted / on-prem GPU clusters.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ghostcacher-redis-config
+  namespace: ghostcacher
+data:
+  redis.conf: |
+    # Persistence — AOF for durability, RDB for fast restarts
+    appendonly yes
+    appendfsync everysec
+    save 900 1
+    save 300 10
+    save 60 10000
+
+    # Memory management
+    maxmemory 8gb
+    maxmemory-policy allkeys-lru
+
+    # Cluster mode (enable for multi-node Redis)
+    # cluster-enabled yes
+    # cluster-config-file nodes.conf
+    # cluster-node-timeout 5000
+
+    # Performance
+    tcp-keepalive 300
+    hz 20
+    aof-rewrite-incremental-fsync yes
+    rdb-save-incremental-fsync yes
+
+    # Keyspace notifications (for TTL expiry events — used by eviction engine)
+    notify-keyspace-events "Ex"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ghostcacher-redis
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-redis
+    component: control-plane
+spec:
+  serviceName: ghostcacher-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ghostcacher-redis
+  template:
+    metadata:
+      labels:
+        app: ghostcacher-redis
+        component: control-plane
+    spec:
+      containers:
+        - name: redis
+          image: redis/redis-stack-server:7.4.0-v0
+          ports:
+            - containerPort: 6379
+              name: redis
+          command:
+            - redis-server
+            - /etc/redis/redis.conf
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+          volumeMounts:
+            - name: redis-config
+              mountPath: /etc/redis
+            - name: redis-data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: redis-config
+          configMap:
+            name: ghostcacher-redis-config
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 50Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghostcacher-redis
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-redis
+spec:
+  selector:
+    app: ghostcacher-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  clusterIP: None  # Headless for StatefulSet DNS

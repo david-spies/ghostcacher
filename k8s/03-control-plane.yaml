@@ -1,0 +1,100 @@
+---
+# k8s/03-control-plane.yaml
+# GhostCacher Control Plane — pod registry, eviction orchestrator, admin API
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghostcacher-control-plane
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-control-plane
+    component: control-plane
+spec:
+  replicas: 2  # HA pair — leader election via Redis SETNX
+  selector:
+    matchLabels:
+      app: ghostcacher-control-plane
+  template:
+    metadata:
+      labels:
+        app: ghostcacher-control-plane
+        component: control-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "7070"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ghostcacher-control-plane
+      containers:
+        - name: control-plane
+          image: ghcr.io/ghostcacher/control-plane:2.1.0
+          env:
+            - name: GC_CP_LISTEN_ADDR
+              value: "0.0.0.0:7070"
+            - name: GC_CP_REDIS_URL
+              value: "redis://ghostcacher-redis.ghostcacher.svc.cluster.local:6379"
+            - name: GC_CP_EVICTION_INTERVAL_SECS
+              value: "300"
+            - name: GC_CP_MAX_CACHE_ENTRIES
+              value: "10000"
+            - name: GC_CP_HBM_SWAP_THRESHOLD
+              value: "0.85"
+          ports:
+            - containerPort: 7070
+              name: http
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 7070
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 7070
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghostcacher-control-plane
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-control-plane
+spec:
+  selector:
+    app: ghostcacher-control-plane
+  ports:
+    - port: 7070
+      targetPort: 7070
+      name: http
+
+---
+# PodDisruptionBudget — keep at least 1 control plane pod alive during rolling updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ghostcacher-control-plane-pdb
+  namespace: ghostcacher
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ghostcacher-control-plane

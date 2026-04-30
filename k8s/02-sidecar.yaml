@@ -1,0 +1,125 @@
+---
+# k8s/02-sidecar.yaml
+# GhostCacher Sidecar — injected into application pods.
+#
+# Two deployment patterns:
+#   A) Manual injection (below) — add ghostcacher-sidecar container to your pod spec
+#   B) MutatingWebhookConfiguration (02-webhook.yaml) — auto-inject on namespace label
+#
+# The sidecar intercepts all outbound LLM traffic by rewriting
+# the HTTPS_PROXY env var to point to localhost:8080.
+
+---
+# Sidecar configuration (shared ConfigMap — mount into all app pods)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ghostcacher-sidecar-config
+  namespace: ghostcacher
+data:
+  GC_LISTEN_ADDR:         "0.0.0.0:8080"
+  GC_METRICS_ADDR:        "0.0.0.0:9090"
+  GC_UPSTREAM_URL:        "https://api.anthropic.com/v1/messages"
+  GC_REDIS_URL:           "redis://ghostcacher-redis.ghostcacher.svc.cluster.local:6379"
+  GC_POD_PORT:            "8000"
+  GC_POD_PATH:            "/v1/messages"
+  GC_REQUEST_TIMEOUT_SECS: "120"
+  GC_HBM_SWAP_THRESHOLD:  "0.85"
+  GC_GHOST_LOCK_TIMEOUT_SECS: "30"
+  GC_RDMA_ENABLED:        "true"
+  GC_LOG_LEVEL:           "info"
+
+---
+# Example: Application deployment with GhostCacher sidecar injected
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-llm-app
+  namespace: ghostcacher
+  labels:
+    app: my-llm-app
+    ghostcacher.io/inject: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: my-llm-app
+  template:
+    metadata:
+      labels:
+        app: my-llm-app
+        ghostcacher.io/inject: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        # ── Your application container ───────────────────────────────────
+        - name: app
+          image: your-org/my-llm-app:latest
+          env:
+            # Route all LLM calls through the GhostCacher sidecar
+            - name: ANTHROPIC_BASE_URL
+              value: "http://localhost:8080"
+            - name: OPENAI_BASE_URL
+              value: "http://localhost:8080/v1"
+          ports:
+            - containerPort: 3000
+
+        # ── GhostCacher Sidecar ─────────────────────────────────────────
+        - name: ghostcacher-sidecar
+          image: ghcr.io/ghostcacher/sidecar:2.1.0
+          envFrom:
+            - configMapRef:
+                name: ghostcacher-sidecar-config
+          env:
+            # Inject API key from secret (never in ConfigMap)
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-api-keys
+                  key: anthropic-api-key
+          ports:
+            - containerPort: 8080
+              name: proxy
+            - containerPort: 9090
+              name: metrics
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+# Secret template (fill in with actual values or use external-secrets-operator)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llm-api-keys
+  namespace: ghostcacher
+type: Opaque
+stringData:
+  anthropic-api-key: "REPLACE_WITH_YOUR_ANTHROPIC_API_KEY"
+  openai-api-key:    "REPLACE_WITH_YOUR_OPENAI_API_KEY"

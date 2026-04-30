@@ -1,0 +1,117 @@
+---
+# k8s/04-kv-relay.yaml
+# GhostCacher KV-Relay — runs as a DaemonSet on every GPU node.
+# Each GPU node gets exactly one relay instance, which handles all
+# cross-node KV tensor transfers for pods on that node.
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ghostcacher-kv-relay
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-kv-relay
+    component: data-plane
+spec:
+  selector:
+    matchLabels:
+      app: ghostcacher-kv-relay
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: ghostcacher-kv-relay
+        component: data-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "50052"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Only run on nodes with a GPU (and SmartNIC for RDMA)
+      nodeSelector:
+        accelerator: nvidia-gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      hostNetwork: true   # Required for RDMA — relay uses the host network stack
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: kv-relay
+          image: ghcr.io/ghostcacher/kv-relay:2.1.0
+          env:
+            - name: GC_RELAY_GRPC_ADDR
+              value: "0.0.0.0:50051"
+            - name: GC_RELAY_HTTP_ADDR
+              value: "0.0.0.0:50052"
+            - name: GC_RELAY_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: GC_RELAY_RDMA_AVAILABLE
+              value: "true"
+            - name: GC_RELAY_MAX_CONCURRENT_STREAMS
+              value: "16"
+            - name: GC_RELAY_CHUNK_SIZE_BYTES
+              value: "4194304"
+          ports:
+            - containerPort: 50051
+              hostPort: 50051
+              name: grpc
+              protocol: TCP
+            - containerPort: 50052
+              hostPort: 50052
+              name: health
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+              # SmartNIC resource (requires device plugin)
+              # mellanox.com/shared_hca: "1"
+          securityContext:
+            # Required for RDMA ibverbs access
+            capabilities:
+              add: ["IPC_LOCK", "NET_ADMIN"]
+            runAsNonRoot: false  # RDMA requires root or specific caps
+          volumeMounts:
+            - name: dev-infiniband
+              mountPath: /dev/infiniband
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50052
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        # Mount InfiniBand/RDMA device for SmartNIC access
+        - name: dev-infiniband
+          hostPath:
+            path: /dev/infiniband
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghostcacher-kv-relay
+  namespace: ghostcacher
+  labels:
+    app: ghostcacher-kv-relay
+spec:
+  selector:
+    app: ghostcacher-kv-relay
+  ports:
+    - port: 50051
+      targetPort: 50051
+      name: grpc
+    - port: 50052
+      targetPort: 50052
+      name: health
+  type: ClusterIP
