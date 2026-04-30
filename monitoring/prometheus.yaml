@@ -1,0 +1,96 @@
+---
+# monitoring/prometheus.yaml
+# Prometheus scrape config for GhostCacher
+# Add to your existing prometheus.yml or deploy standalone.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-ghostcacher-config
+  namespace: ghostcacher
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # GhostCacher Sidecar metrics (one per app pod)
+      - job_name: 'ghostcacher-sidecar'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [ghostcacher]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_label_ghostcacher_io_inject]
+            action: keep
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      # GhostCacher Control Plane
+      - job_name: 'ghostcacher-control-plane'
+        static_configs:
+          - targets: ['ghostcacher-control-plane.ghostcacher.svc.cluster.local:7070']
+
+      # GhostCacher KV-Relay (per node)
+      - job_name: 'ghostcacher-kv-relay'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: 'ghostcacher-kv-relay'
+
+    # Alert rules
+    rule_files:
+      - /etc/prometheus/ghostcacher-alerts.yml
+
+  ghostcacher-alerts.yml: |
+    groups:
+      - name: ghostcacher
+        rules:
+          - alert: GhostCacherHitRatioLow
+            expr: gc_cache_hit_ratio < 0.7
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "GhostCacher hit ratio below 70% for 5 minutes"
+              description: "Cache hit ratio is {{ $value | humanizePercentage }}. Check prompt stability."
+
+          - alert: GhostCacherRedisDead
+            expr: up{job="ghostcacher-control-plane"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "GhostCacher Control Plane unreachable"
+              description: "Redis control plane may be down. Cache routing will degrade to random."
+
+          - alert: GhostCacherHighSidecarLatency
+            expr: histogram_quantile(0.99, rate(gc_request_latency_ms_bucket[5m])) > 10
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "GhostCacher sidecar p99 latency > 10ms"
+              description: "Sidecar overhead at p99 is {{ $value }}ms. Check Redis connection."
