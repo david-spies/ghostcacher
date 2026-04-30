@@ -1,0 +1,28 @@
+[package]
+name    = "ghostcacher-control-plane"
+version = "2.1.0"
+edition = "2021"
+description = "GhostCacher Control Plane — pod registry, eviction orchestration, cluster health"
+
+[[bin]]
+name = "ghostcacher-control-plane"
+path = "src/main.rs"
+
+[dependencies]
+tokio              = { workspace = true }
+axum               = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+reqwest            = { workspace = true }
+redis              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow             = { workspace = true }
+thiserror          = { workspace = true }
+uuid               = { workspace = true }
+tower-http         = { workspace = true }
+async-trait        = { workspace = true }
+prometheus         = { workspace = true }
+config             = { workspace = true }
+dashmap            = { workspace = true }
+tokio-cron-scheduler = "0.10"
